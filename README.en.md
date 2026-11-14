@@ -4,8 +4,6 @@ Post-earthquake rescue path assessment system based on air-ground coordination a
 
 An overhead panoramic camera surveys the scene, classifies water, pits and collapsed buildings into a semantic risk cost map, and the system computes a coordinate-navigation suggestion ("turn right X°, then drive straight") that the operator executes manually with WASD. **Human in the loop, zero autonomous driving** — the host only suggests and assesses; it never drives the vehicle.
 
-> This is the open-source code repository of AGCDR, a national-level university innovation project.
-
 ## What it does
 
 | # | Module | Function |
