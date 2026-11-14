@@ -18,6 +18,10 @@ jobs:
         run: python -m py_compile software/*.py software/tools/*.py software/demo/*.py
       - name: Install deps
         run: pip install -r software/requirements.txt
+      - name: Create local config from example
+        # config.py 是本地文件（存真实 IP），被 git 忽略，CI 检出里没有；
+        # 用占位符版生成一份，smoke test 和单测才能 import config
+        run: cp software/config.example.py software/config.py
       - name: Smoke test (import core modules without camera)
         run: python -c "import sys; sys.path.insert(0, 'software'); import config, decision, deepseek, car; print('decision:', decision.decide(None, []).action)"
       - name: Run tests
@@ -34,5 +38,9 @@ jobs:
         run: |
           arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - name: Create local firmware config from example
+        # config.h 是本地文件（存引脚参数），被 git 忽略，CI 检出里没有；
+        # 用占位符版生成一份，否则 #include "config.h" 编译失败
+        run: cp firmware/SmartCar_System/config.example.h firmware/SmartCar_System/config.h
       - name: Compile firmware
         run: arduino-cli compile --fqbn esp32:esp32:esp32 firmware/SmartCar_System/SmartCar_System.ino

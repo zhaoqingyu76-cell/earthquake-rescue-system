@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- CI：检出前从 `.example` 复制本地配置（`config.py` / `config.h` 被 git 忽略，之前 CI 里没有，smoke test 和固件编译直接失败）。
 - Web 主流程：小车进入危险区警戒框时自动停车并触发一次 DeepSeek 研判；定位丢失时停车。
 - Flask 控制接口增加 `CONTROL_TOKEN` 口令（`/api/cmd`、`/api/mode` 等写接口）。
 - 配置清理：`AUTO_ON` → `ONBOARD_ENABLE`，绕行时间常量改名秒（`ROUND_*_S`），删除未用常量，`requirements.txt` 加版本上限。
