@@ -94,6 +94,12 @@
 
   .log{background:#0a0d12; border-radius:7px; margin-top:8px; padding:6px 9px;
       height:44px; overflow:auto; font-size:11px; color:var(--gray); line-height:1.5;}
+
+  .token-row{display:flex; gap:6px; align-items:center; margin-top:8px; font-size:12px;
+      color:var(--gray);}
+  .token-row input{flex:1; min-width:0; padding:7px 9px; font-size:12px; color:var(--text);
+      background:#0a0d12; border:1px solid var(--line); border-radius:7px; outline:none;}
+  .token-row input:focus{border-color:#7aa2ff;}
 </style>
 </head>
 <body>
@@ -163,6 +169,10 @@
       <div class="ctl-row">
         <button class="stop" id="stopBtn">■ 紧急停车(O)</button>
       </div>
+      <div class="token-row">
+        <label for="tokenInput">控制口令</label>
+        <input type="password" id="tokenInput" placeholder="未设置口令时留空" autocomplete="off">
+      </div>
       <div class="log" id="log"></div>
     </div>
   </div>
@@ -174,6 +184,22 @@ const logEl = document.getElementById('log');
 const report = document.getElementById('report');
 const methodBadge = document.getElementById('modeBadge');
 
+// ===== 控制口令：会动小车的接口要带口令（服务端设了 CONTROL_TOKEN 才校验）=====
+// 口令只存在这个浏览器标签页的 sessionStorage 里，不写进任何文件；
+// 服务端没设口令时留空即可，接口照常能用。
+const tokenInput = document.getElementById('tokenInput');
+let controlToken = sessionStorage.getItem('controlToken') || '';
+tokenInput.value = controlToken;
+tokenInput.addEventListener('input', ()=>{
+  controlToken = tokenInput.value.trim();
+  if(controlToken) sessionStorage.setItem('controlToken', controlToken);
+  else sessionStorage.removeItem('controlToken');
+});
+function api(path){
+  if(!controlToken) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(controlToken);
+}
+
 // ===== 工作模式：手动 / 超声波避障（无自动驾驶） =====
 let mode = 'manual';
 function paintModeBtns(){
@@ -184,10 +210,10 @@ function paintModeBtns(){
 }
 async function setMode(m){
   if(m==='manual'){
-    const r = await fetch('/api/mode?m=manual').then(x=>x.json());
+    const r = await fetch(api('/api/mode?m=manual')).then(x=>x.json());
     mode = r.mode;
   } else {
-    const r = await fetch('/api/mode?m=avoid').then(x=>x.json());
+    const r = await fetch(api('/api/mode?m=avoid')).then(x=>x.json());
     mode = r.mode;
   }
   paintModeBtns();
@@ -197,7 +223,7 @@ document.getElementById('manualBtn').onclick = ()=>setMode('manual');
 document.getElementById('avoidBtn').onclick = ()=>setMode('avoid');
 
 async function send(a){
-  const r = await fetch('/api/cmd?a='+a).then(x=>x.json());
+  const r = await fetch(api('/api/cmd?a='+a)).then(x=>x.json());
   if(r && r.reason) log('⚠ '+r.reason);
   return r;
 }
@@ -247,11 +273,11 @@ document.getElementById('stopBtn').addEventListener('click', ()=>{ releaseHold()
 // ===== 锁定/清空/自动转向 =====
 const confirmBtn = document.getElementById('confirmBtn');
 confirmBtn.addEventListener('click', async ()=>{
-  const r = await fetch('/api/confirm').then(x=>x.json());
+  const r = await fetch(api('/api/confirm')).then(x=>x.json());
   log(r.ok ? '✓ 已锁定小车位置（坐标导航基准）' : '✗ '+r.reason);
 });
 document.getElementById('unlockBtn').addEventListener('click', async ()=>{
-  await fetch('/api/unlock').then(x=>x.json());
+  await fetch(api('/api/unlock')).then(x=>x.json());
   log('已清空当前目标区');
 });
 
@@ -508,8 +534,8 @@ zoneCanvas.addEventListener('click', async (e)=>{
   const px = e.clientX - r.left;
   const py = e.clientY - r.top;
   const f = canvas2frame(px, py);
-  const res = await fetch('/api/select_zone?x=' + Math.round(f.x) +
-                           '&y=' + Math.round(f.y)).then(x=>x.json());
+  const res = await fetch(api('/api/select_zone?x=' + Math.round(f.x) +
+                           '&y=' + Math.round(f.y))).then(x=>x.json());
   log(res.ok ? '🎯 已选择当前目标区' : '✗ ' + (res.reason||'点选失败'));
 });
 
@@ -568,6 +594,10 @@ setInterval(async ()=>{
     if(st.onboard_near){
       const k = st.onboard_near_kind==='water'?'水源':'坑';
       html += `<div class="hazard">【车载近距兜底】前方贴近${k}，请减速/停止（人工操控）</div>`;
+    }
+    if(st.hazard_stop){
+      const k = st.hazard_zone==='water' ? '水源区' : (st.hazard_zone==='collapse' ? '倒塌区' : (st.hazard_zone==='pit' ? '坑洞' : ''));
+      html += `<div class="hazard">【自动停车】${k ? '已进入'+k+'警戒区' : '小车定位丢失'}，已自动停车，等待人工研判</div>`;
     }
     if(st.assessment){
       // 去掉"坑洞3433"这类 DeepSeek 自编编号里的数字（中文后紧跟数字的去掉数字）

@@ -2,7 +2,7 @@
 
 动作语义（与 ESP32 对应）：
   f  前进（不在任何纸警戒圈内 -> 直行）
-  s  停车等待（小车进入某色纸向外扩 5cm 的警戒框 -> 人工研判）
+  s  停车等待（小车进入某色纸向外扩 2cm 的警戒框 -> 人工研判，或小车定位丢失）
 不再根据"固定画面区域"判定，而是根据"小车与色纸的像素距离"判定。
 """
 import config
@@ -35,14 +35,16 @@ def decide(car_loc, zones, radius_px=None):
     radius_px: 警戒框外扩像素（默认取 config.DANGER_RADIUS_PX）
 
     返回:
-      - 小车进入任一色纸 5cm 警戒框 -> s(停车+研判)，zone=该纸
+      - 小车进入任一色纸 2cm 警戒框 -> s(停车+研判)，zone=该纸
+      - 小车定位丢失 -> s(停车等待重新识别)，zone=None
       - 否则 -> f(直行)
     """
     radius = radius_px or config.DANGER_RADIUS_PX
 
     if car_loc is None:
-        # 看不清小车时为了安全：若仍有纸且很近，保守停车；否则前进
-        return Decision("f", "小车定位暂丢失，按前方安全处理", None)
+        # 看不清小车时为了安全：没有位置就无法判断离危险区多远，保守停车，
+        # 等 ArUco 重新识别到再说；绝不能在"不知道车在哪"时继续往前开。
+        return Decision("s", "小车定位丢失，停车等待重新识别", None)
 
     (car_cx, car_cy), _ = car_loc
 
@@ -59,8 +61,9 @@ def decide(car_loc, zones, radius_px=None):
 
     dist, kind, cx, cy, area, bbox = best
     if dist <= radius:
-        return Decision("s", f"小车距{kind}({['水源区','坑'][kind=='pit']})约"
-                        f"{max(0, int(dist/config.PIXELS_PER_CM))}cm，进入5cm警戒区，停车研判",
+        zname = {"water": "水源区", "pit": "坑", "collapse": "倒塌区"}.get(kind, kind)
+        return Decision("s", f"小车距{zname}约"
+                        f"{max(0, int(dist/config.PIXELS_PER_CM))}cm，进入2cm警戒区，停车研判",
                         (kind, cx, cy, area, bbox))
 
     return Decision("f", "前方水源/坑尚远，直行", None)

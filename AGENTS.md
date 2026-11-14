@@ -32,5 +32,10 @@ Working notes for agents contributing to this repo.
   disclose specific hardware models or core algorithm details beyond
   what the code itself already shows.
 - Small, conventional commits: `feat:`, `fix:`, `docs:`, `ci:`, `chore:`.
-- Before pushing, run `python -m py_compile software/*.py software/tools/*.py`
-  and make sure CI (arduino-cli compile of the firmware) is green.
+- Before pushing, run `python -m py_compile software/*.py software/tools/*.py software/demo/*.py`
+  and `python -m pytest software/tests -q`, and make sure CI (arduino-cli compile
+  of the firmware) is green.
+- Detection noise is fixed in `detection.py`, not by widening HSV ranges:
+  tune `MIN_ZONE_AREA`, `ZONE_MERGE_PX`, `ZONE_PERSIST_FRAMES` and `ROI`
+  in `config.py` first; re-calibrate HSV with `software/tools/probe_color.py`
+  when the lighting changes.

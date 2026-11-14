@@ -1,12 +1,15 @@
-"""主控制器：全景摄像头两阶段控制流程（备用：OpenCV 窗口版）。
+"""备用控制器：OpenCV 窗口版（离线备用，不参与 Web 主流程）。
+
+Web 主流程（web_server.py）始终人工在回路、零自动行驶；本文件只在
+没浏览器 / 离线调试时用，保留早期的两阶段流程：
 
 阶段一【定位小车】：摄像头识别小车（顶部贴 ArUco 码），只有小车被稳定
-  识别后按空格确认才进入自动驾驶，确认前绝不发送行驶指令。
-阶段二【自动驾驶】：识别水源(青蓝)/坑(红)，控制前进；遇前方水源/坑 ->
+  识别后按空格确认才进入行驶，确认前绝不发送行驶指令。
+阶段二【行驶】：识别水源(青蓝)/坑(红)，控制前进；遇前方水源/坑 ->
   小车暂停，接 DeepSeek 研判，由搜救人员按键选择后才继续。
 
 键盘：
-  阶段一：空格 = 确认小车位置并开始自动驾驶
+  阶段一：空格 = 确认小车位置并开始行驶
   阶段二：[1] 从旁边绕过去  [2] 直穿  [s] 停止不前进
   全程：q / ESC 退出
 """
@@ -172,9 +175,9 @@ def _round_around(car, cx):
     car.stop_hold()
     turn = "r" if cx < config.CENTER_X else "l"   # 反方向让开
     car.go(turn)
-    time.sleep(config.ROUND_TURN_MS)
+    time.sleep(config.ROUND_TURN_S)
     car.go("f")
-    time.sleep(config.ROUND_FWD_MS)
+    time.sleep(config.ROUND_FWD_S)
     car.go("f")
 
 

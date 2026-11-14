@@ -31,7 +31,9 @@ import flask
 
 import config
 from car import Car
-from detection import (detect, detect_car_pose, draw_car, draw_warning_boxes)
+from decision import decide
+from detection import (detect, detect_car_pose, draw_car, draw_warning_boxes,
+                       reset_zone_tracker)
 
 app = flask.Flask(__name__)
 _LOCK = threading.Lock()
@@ -55,6 +57,9 @@ RTS = {
             "turn_deg": 0.0},     # 坐标导航建议（前端画 AR）
     "onboard_near": False,        # 车载图传近距兜底：检测到水/坑色块贴车
     "onboard_near_kind": "",      # 兜底识别到的地形类型: water / pit
+    "hazard_stop": False,         # 刚进入危险区警戒框 / 定位丢失，系统已自动停车等人工研判
+    "hazard_zone": "",            # 触发自动停车的地形类型: water / pit / collapse / ""
+    "hazard_latched": False,      # 沿触发器：只在"刚进入"那一刻发一次停车
     }
 
 
@@ -150,13 +155,11 @@ def _nearest_zone(zones, car_loc):
     return best
 
 
-def _auto_assess():
-    """对当前锁定地形触发一次 DeepSeek 震后搜救风险研判（异步，不阻塞请求线程）。"""
-    with _LOCK:
-        zl = list(RTS["zones_locked"])
-    if not zl:
+def _assess_zones_async(zones):
+    """对给定的地形列表触发一次 DeepSeek 震后搜救风险研判（后台线程，不阻塞调用方）。"""
+    if not zones:
         return
-    summary = _summarize_zones(zl)
+    summary = _summarize_zones(zones)
     with _LOCK:
         RTS["assessment"] = "正在调用 DeepSeek 研判…"
 
@@ -170,6 +173,34 @@ def _auto_assess():
             RTS["assessment"] = res
 
     threading.Thread(target=_run, daemon=True).start()
+
+
+def _auto_assess():
+    """对当前锁定地形触发一次 DeepSeek 震后搜救风险研判（异步，不阻塞请求线程）。"""
+    with _LOCK:
+        zl = list(RTS["zones_locked"])
+    _assess_zones_async(zl)
+
+
+# ------------------- 控制口令鉴权 -------------------
+# 会动小车的接口（/api/cmd、/api/mode、/api/avoid、/api/confirm、
+# /api/select_zone、/api/unlock）必须带对口令才执行；只读接口
+# （/、/api/status、/video_feed）不用口令。
+# 口令由环境变量 CONTROL_TOKEN 设定；没设 = 不设防（启动时会打印提醒）。
+_CONTROL_PATHS = {"/api/cmd", "/api/mode", "/api/avoid", "/api/confirm",
+                  "/api/select_zone", "/api/unlock"}
+
+
+@app.before_request
+def _check_control_token():
+    if flask.request.path not in _CONTROL_PATHS:
+        return None
+    token = getattr(config, "CONTROL_TOKEN", "")
+    if not token:
+        return None
+    if flask.request.args.get("token", "") != token:
+        return flask.jsonify({"ok": False, "reason": "控制口令不对或没带口令"}), 403
+    return None
 
 
 # ------------------- Flask 路由 -------------------
@@ -243,6 +274,8 @@ def api_status():
             "assessment": RTS["assessment"],
             "onboard_near": RTS["onboard_near"],
             "onboard_near_kind": RTS["onboard_near_kind"],
+            "hazard_stop": RTS["hazard_stop"],
+            "hazard_zone": RTS["hazard_zone"],
             "nav": nav,
             "collapse": config.COLLAPSE_SECTOR,
             "cmd_log": list(reversed(RTS["cmd_log"])),
@@ -422,6 +455,7 @@ def _camera_thread():
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.PROC_H)
                     read_fail = 0
                     RTS["last_reason"] = None
+                    reset_zone_tracker()  # 断线前的旧区记忆清掉，避免"认领"新画面
                     print("🔄 空中摄像头已自动重连")
                 continue
             continue
@@ -489,6 +523,44 @@ def _make_nav_tick():
                     RTS["last_reason"] = "坐标导航：车头朝向未识别，先调整小车对准"
                 else:
                     RTS["last_reason"] = ("等待锁定小车 + 点选目标区 → 出导航建议")
+
+        # 安全停车（只在手动模式）：进入危险区警戒框 / 定位丢失 -> 停车等人工研判。
+        # 边缘触发：只在"刚进入"那一刻发一次停车，不与人工操控抢指令；
+        # 人工按住 W 开出警戒区后自动解除，下次再进入会重新触发。
+        if mode == "manual":
+            dec = decide(car_loc, zones)
+            with _LOCK:
+                latched = RTS["hazard_latched"]
+            if dec.action == "s" and not latched:
+                lost_only = dec.zone is None
+                with _LOCK:
+                    seen_before = RTS["car_last_good"] is not None
+                with _LOCK:
+                    RTS["hazard_latched"] = True
+                if lost_only and not seen_before:
+                    # 从没定位过小车：没什么可停的，只把沿触发器置位
+                    pass
+                else:
+                    _CAR.stop_hold()
+                    with _LOCK:
+                        RTS["hazard_stop"] = True
+                        RTS["hazard_zone"] = dec.zone[0] if dec.zone else ""
+                    if dec.zone is not None:
+                        zname = {"water": "水源区", "pit": "坑洞",
+                                 "collapse": "倒塌区"}.get(dec.zone[0], dec.zone[0])
+                        _log(f"⛔ 进入{zname}警戒区，已自动停车，等待人工研判")
+                        _assess_zones_async([dec.zone])
+                        with _LOCK:
+                            RTS["last_reason"] = f"⛔ 已进入{zname}警戒区，自动停车，等待人工研判"
+                    else:
+                        _log("⛔ 小车定位丢失，已自动停车")
+                        with _LOCK:
+                            RTS["last_reason"] = "⛔ 小车定位丢失，已自动停车"
+            elif dec.action == "f":
+                with _LOCK:
+                    RTS["hazard_latched"] = False
+                    RTS["hazard_stop"] = False
+                    RTS["hazard_zone"] = ""
 
     return tick
 
@@ -564,7 +636,7 @@ if __name__ == "__main__":
     RTS["mode"] = "manual"            # 默认手动操控，未确认小车前小车绝不动
     t = threading.Thread(target=_camera_thread, daemon=True)
     t.start()
-    if getattr(config, "AUTO_ON", True) and config.ONBOARD_STREAM_URL:
+    if getattr(config, "ONBOARD_ENABLE", True) and config.ONBOARD_STREAM_URL:
         _onb_url = _probe_onboard_url()
         if _onb_url:
             print(f"✓ 自动检测到小车图传：(可连通) {_onb_url}")
@@ -587,6 +659,9 @@ if __name__ == "__main__":
     except Exception:
         _local_ip = "127.0.0.1"
     print(f"[Rescue Copilot Web] 浏览器访问 http://{_local_ip}:{config.UI_PORT}")
+    if not getattr(config, "CONTROL_TOKEN", ""):
+        print("⚠ 未设置 CONTROL_TOKEN：同一局域网内任何人都能调用 /api/cmd 控制小车；"
+              "演示前请设环境变量 CONTROL_TOKEN，并在网页口令框里填同一个口令")
     print("工作方式：确认小车位置→点选目标区→出坐标导航建议；"
           "WASD 手动操控，按建议转向角走")
     print("小车图传窗口地址:", config.ONBOARD_STREAM_URL,

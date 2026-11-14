@@ -5,6 +5,7 @@
 - DeepSeek Key：去 DeepSeek 后台作废旧 Key、生成新 Key，只放环境变量或本地 `.env`，不要写进任何代码文件。
 - 手机热点密码：改掉旧密码；在 `firmware/SmartCar_System/WebHandler.cpp` 里本地填写，**不要提交这个文件的修改**。
 - 现场 IP 每次联网都可能变，填在本地的 `config.py` / `.env` 里即可。
+- 控制口令（可选但建议）：设环境变量 `CONTROL_TOKEN`（比如 `set CONTROL_TOKEN=agcdr2026`），再在网页“手动操控”下方的口令框里填同一个口令；没设口令时，同一局域网内任何人都能调用控制接口开车。
 
 ## 1. 硬件端
 

@@ -35,3 +35,11 @@ python demo/sim_tactical_brain_cartoon.py
 - 这是**演示/仿真**，不连小车、不读摄像头、不发控制指令；
   真实硬件流程见 `../web_server.py` 和 `../rescue_controller.py`。
 - DeepSeek Key 只从环境变量读取，文件里不要再写死 Key。
+
+## 运行截图
+
+![阶段一：传统纯直线盲闯](../../docs/images/demo-stage1.png)
+*阶段一：传统纯直线（红线）无视地形，闯入危墙 4.5 米致死圈被砸中，系统状态【被砸中！强行硬抗】。*
+
+![阶段二：本系统绕行](../../docs/images/demo-stage2.png)
+*阶段二：本系统接管，方案 1（绿线）绕出 8.0 米外安全圈、绝对安全，方案 2（红线）切入 4.5~8.0 米内冒险贴墙走，等指挥官按 [1]/[2] 批复。*
