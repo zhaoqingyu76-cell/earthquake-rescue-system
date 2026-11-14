@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## v1.1.0 - 2026-11-15
+
 ### Added
 
 - `software/tests/`：检测去噪 + 决策单测（pytest，13 个用例），CI 自动跑。
 - README / `docs/software.md`：mermaid 架构数据流图。
+- README“实际运行”章节：3 张真实场地控制台截图 + 2 张全流程演示截图。
 - 检测去噪：面积门槛、形状过滤、同类合并、每类上限、跨帧稳定、场地 ROI。
 
 ### Fixed
