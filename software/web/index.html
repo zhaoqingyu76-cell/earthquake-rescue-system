@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rescue Copilot · 搜救决策指挥台</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root{
+    --bg:#0e1117; --panel:#161b24; --line:#2a3340;
+    --green:#3ddc84; --orange:#ffa040; --yellow:#ffd23d;
+    --red:#ff4d4f; --gray:#8a93a3; --text:#e8ecf2;
+  }
+  html,body{height:100%;}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei",Arial,sans-serif;
+    background:var(--bg); color:var(--text); overflow:hidden; font-size:13px;
+  }
+  .wrap{display:flex; height:100vh; padding:10px; gap:10px;}
+
+  /* ===== 左侧 2/3：两摄像头并排，画面铺满 ===== */
+  .left{flex:2.2; display:flex; gap:10px; min-width:0; min-height:0;}
+  .airbox, .onnbox{flex:1; background:#000; border:1px solid var(--line);
+      border-radius:8px; overflow:hidden; position:relative; min-width:0; min-height:0;
+      display:flex; align-items:center; justify-content:center;}
+  .cam-tag{position:absolute; z-index:2; top:6px; left:6px; background:rgba(0,0,0,.72);
+      padding:2px 9px; border-radius:5px; font-size:11px; border:1px solid var(--line);}
+  .airbox img, .onnbox img{width:100%; height:100%; object-fit:cover; display:block;}
+  .airbox canvas#zoneCanvas{position:absolute; inset:0; width:100%; height:100%;
+      cursor:crosshair; z-index:1; background:transparent; pointer-events:auto;}
+  .airbox .cam-tag{z-index:3;}
+  .airbox .overlay-tip{position:absolute; z-index:2; left:0; right:0; bottom:0;
+      background:linear-gradient(transparent,rgba(0,0,0,.85)); padding:20px 12px 8px;
+      font-size:11px; color:#cfd6e2;}
+  .airbox .overlay-tip b.y{color:var(--yellow);}
+  .airbox .overlay-tip b.c{color:#5ad0ff;}
+  .airbox .overlay-tip b.g{color:var(--green);}
+
+  /* ===== 右侧 1/3：导航 + 控制 ===== */
+  .right{flex:1; display:flex; flex-direction:column; gap:10px; min-width:300px; min-height:0;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:9px;
+      padding:10px 12px; display:flex; flex-direction:column; min-height:0;}
+  .card h3{font-size:13px; margin-bottom:8px; display:flex; align-items:center; gap:8px;}
+  .card h3 .sep{flex:1; border-top:1px dashed var(--line);}
+
+  /* —— 决策/导航区 —— */
+  .decision{flex:1.1;}
+  .statusline{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; font-size:12px;}
+  .badge{font-size:11px; padding:3px 10px; border-radius:16px; border:1px solid var(--line);
+      white-space:nowrap;}
+  .badge.lock{color:var(--yellow); border-color:var(--yellow);}
+  .badge.zlock{color:#5ad0ff; border-color:#5ad0ff;}
+  .badge.nav{color:var(--green); border-color:var(--green);}
+  .report{background:#0a0d12; border:1px solid var(--line); border-radius:7px;
+      padding:8px 10px; overflow:auto; line-height:1.7; font-size:12px; flex:1; min-height:80px;}
+  .report .zone{color:var(--yellow);}
+  .report .assess{color:#cfd6e2; margin-top:4px; white-space:pre-wrap;}
+  .report .hazard{color:var(--red); font-weight:600;}
+
+  /* 导航建议大字 */
+  .navbig{display:flex; align-items:center; gap:10px; padding:9px 11px; margin-top:8px;
+      background:#0d1a12; border:1px solid var(--green); border-radius:8px;}
+  .navbig .deg{font-size:22px; font-weight:700; color:var(--green); font-family:Consolas,monospace;}
+  .navbig .txt{font-size:12px; color:var(--gray); line-height:1.4;}
+
+  .lockbar{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .lockbar button{flex:1; min-width:0; padding:8px 4px; font-size:12px; border:1px solid var(--line);
+      border-radius:7px; background:#1d2431; color:var(--text); cursor:pointer;}
+  .lockbar button.primary{background:#123a2a; border-color:var(--green); font-weight:600;}
+  .lockbar button.navbtn{background:#123a2a; border-color:var(--green); font-weight:600;}
+  .lockbar button:disabled{opacity:.42; cursor:not-allowed; filter:grayscale(.4);}
+  .lockbar button:hover:not(:disabled){background:#2a3345;}
+
+  /* —— 控制区 —— */
+  .control{flex:0.8; justify-content:center;}
+  .mode-row{display:flex; gap:6px; margin-bottom:8px;}
+  .mode-row button{flex:1; padding:9px; font-size:13px; border:1px solid var(--line);
+      border-radius:7px; background:#1d2431; color:var(--text); cursor:pointer;}
+  .mode-row button.active-manual{background:#22305a; border-color:#7aa2ff; font-weight:600;}
+  .mode-row button.active-avoid{background:#3a2a12; border-color:var(--orange); font-weight:600;}
+
+  .keys{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-width:230px;
+       margin:6px auto;}
+  .key{background:#1d2431; border:1px solid var(--line); border-radius:10px; padding:12px 4px;
+      font-size:16px; font-weight:600; text-align:center; user-select:none;}
+  .key small{display:block; font-size:10px; color:var(--gray); font-weight:400; margin-top:3px;}
+  .key.stop-key{background:#3a1f22; border-color:var(--red);}
+  .key.hint-key{opacity:.45;}
+
+  .ctl-row{display:flex; gap:6px; margin-top:8px;}
+  .ctl-row button{flex:1; padding:11px 6px; font-size:13px; border:1px solid var(--line);
+      border-radius:7px; background:#1d2431; color:var(--text); cursor:pointer; font-weight:600;}
+  .ctl-row button.stop{background:#3a1f22; border-color:var(--red); color:#fff;}
+
+  .log{background:#0a0d12; border-radius:7px; margin-top:8px; padding:6px 9px;
+      height:44px; overflow:auto; font-size:11px; color:var(--gray); line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- ===== 左：两摄像头并排 + AR 导航叠加 ===== -->
+  <div class="left">
+    <div class="airbox">
+      <div class="cam-tag">◎ 空中全景摄像头 <small style="color:var(--gray)">点击选中一个区作为当前目标</small></div>
+      <img id="air" src="/video_feed" alt="空中摄像头">
+      <canvas id="zoneCanvas"></canvas>
+      <div class="overlay-tip">
+        青蓝=<b class="c">水源区</b> · 红=<b class="y">坑</b> · 黄框=锁定小车 · <b class="g">绿线/箭头=建议走向</b>
+      </div>
+    </div>
+    <div class="onnbox">
+      <div class="cam-tag">◉ 小车图传（第一视角）</div>
+      <img id="onn" src="" alt="小车图传">
+    </div>
+  </div>
+
+  <!-- ===== 右：坐标导航 + 控制 ===== -->
+  <div class="right">
+    <div class="card decision">
+      <h3><span>🧭</span> 坐标导航研判 <span class="sep"></span>
+        <span id="navBadge" class="badge">待锁定</span></h3>
+      <div class="statusline">
+        <span>小车：<b id="carLoc">未定位</b></span>
+        <span id="lockBadge" class="badge">位置未锁定</span>
+        <span id="zlockBadge" class="badge">目标区未选</span>
+      </div>
+      <div class="report" id="report">
+        锁定小车位置并点选一个目标区后，将在此显示坐标导航建议与 DeepSeek 研判…
+      </div>
+
+      <!-- 导航建议大字 -->
+      <div class="navbig" id="navbig" style="display:none">
+        <div class="deg" id="navDeg">右 0°</div>
+        <div class="txt" id="navTxt">建议：按该角度转向后再直行，即可让开目标区。随后按住 W 前进。</div>
+      </div>
+
+      <div class="lockbar">
+        <button id="confirmBtn" disabled>① 锁定小车位置</button>
+        <button id="unlockBtn">② 清空目标区</button>
+      </div>
+    </div>
+
+    <div class="card control">
+      <h3><span>🎮</span> 手动操控 <span class="sep"></span>
+        <span id="modeBadge" class="badge">手动</span></h3>
+      <div class="mode-row">
+        <button id="manualBtn">🎮 手动操控</button>
+        <button id="avoidBtn" class="">🧭 超声波避障</button>
+      </div>
+
+      <div class="keys">
+        <div class="key hint-key"></div>
+        <div class="key">W<small>前进</small></div>
+        <div class="key hint-key"></div>
+        <div class="key">A<small>左转</small></div>
+        <div class="key stop-key">O<small>暂停</small></div>
+        <div class="key">D<small>右转</small></div>
+        <div class="key hint-key"></div>
+        <div class="key">S<small>后退</small></div>
+        <div class="key hint-key"></div>
+      </div>
+
+      <div class="ctl-row">
+        <button class="stop" id="stopBtn">■ 紧急停车(O)</button>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const onnImg = document.getElementById('onn');
+const logEl = document.getElementById('log');
+const report = document.getElementById('report');
+const methodBadge = document.getElementById('modeBadge');
+
+// ===== 工作模式：手动 / 超声波避障（无自动驾驶） =====
+let mode = 'manual';
+function paintModeBtns(){
+  document.getElementById('manualBtn').className = mode==='manual'?'active-manual':'';
+  document.getElementById('avoidBtn').className  = mode==='avoid'?'active-avoid':'';
+  methodBadge.textContent = mode==='manual'?'手动':'超声波避障';
+  methodBadge.style.color = mode==='manual'?'#7aa2ff':'var(--orange)';
+}
+async function setMode(m){
+  if(m==='manual'){
+    const r = await fetch('/api/mode?m=manual').then(x=>x.json());
+    mode = r.mode;
+  } else {
+    const r = await fetch('/api/mode?m=avoid').then(x=>x.json());
+    mode = r.mode;
+  }
+  paintModeBtns();
+  log('当前模式：'+methodBadge.textContent);
+}
+document.getElementById('manualBtn').onclick = ()=>setMode('manual');
+document.getElementById('avoidBtn').onclick = ()=>setMode('avoid');
+
+async function send(a){
+  const r = await fetch('/api/cmd?a='+a).then(x=>x.json());
+  if(r && r.reason) log('⚠ '+r.reason);
+  return r;
+}
+function log(m){
+  const d = new Date().toTimeString().slice(0,8);
+  const t = document.createElement('div');
+  t.textContent = '['+d+'] '+m;
+  logEl.prepend(t);
+  while(logEl.children.length>5) logEl.removeChild(logEl.lastChild);
+}
+
+// ===== 按住移动、松开立即停（W前 S后 A左 D右，O/空格暂停）=====
+// ESP32 端 go=f/l/r 是"持续运行直到 s"，为保证"按则动、松开立刻停"：
+//  - 按住期间每 180ms 重申一次方向，防止偶发丢包、也让动作持续；
+//  - 松开(或 blur/切走)立即连发两次 s 兜底停车，即使一次丢包也能停住。
+let held = null;
+let holdTimer = null;
+const KEYMAP = {w:'f', s:'b', a:'l', d:'r'};
+function pressHold(a){
+  if(held===a) return;
+  releaseHold();
+  held = a;
+  send(a);
+  clearInterval(holdTimer);
+  holdTimer = setInterval(()=>{ if(held) send(held); }, 180);
+}
+function releaseHold(){
+  clearInterval(holdTimer);
+  holdTimer = null;
+  if(held){ send('s'); setTimeout(()=>send('s'), 40); held=null; }
+}
+window.addEventListener('keydown', e=>{
+  if(e.target.matches('input,textarea')) return;
+  const k = e.key.toLowerCase();
+  if(k==='o' || k===' '){ e.preventDefault(); releaseHold(); send('s'); return; }
+  if(k in KEYMAP){ e.preventDefault(); pressHold(KEYMAP[k]); }
+});
+window.addEventListener('keyup', e=>{
+  const k = e.key.toLowerCase();
+  if(k in KEYMAP) releaseHold();
+});
+window.addEventListener('blur', ()=>{ if(held) releaseHold(); });
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden && held) releaseHold(); });
+
+document.getElementById('stopBtn').addEventListener('click', ()=>{ releaseHold(); send('s'); });
+
+// ===== 锁定/清空/自动转向 =====
+const confirmBtn = document.getElementById('confirmBtn');
+confirmBtn.addEventListener('click', async ()=>{
+  const r = await fetch('/api/confirm').then(x=>x.json());
+  log(r.ok ? '✓ 已锁定小车位置（坐标导航基准）' : '✗ '+r.reason);
+});
+document.getElementById('unlockBtn').addEventListener('click', async ()=>{
+  await fetch('/api/unlock').then(x=>x.json());
+  log('已清空当前目标区');
+});
+
+onnImg.src = ENV_ONBOARD_URL;
+// 小车图传是 MJPEG 长连接，热点信号波动时 TCP 一断就黑屏且不会自恢复。
+// onerror 兜底：延迟重设 src 强制浏览器重新拉流，画面断了几秒后自愈，无需手动刷新。
+(function autoReloadOnboard() {
+  let t = null;
+  onnImg.addEventListener('error', function () {
+    if (t) return;
+    t = setTimeout(function () {
+      const cur = onnImg.src;
+      onnImg.src = '';
+      onnImg.src = cur;
+      t = null;
+      log('图传断流，已尝试自动重连…');
+    }, 2000);
+  });
+})();
+
+// 空中全景摄像头(/video_feed)断流自动重连：与图传同理，
+// 后台线程读帧失败(摄像头被占用/USB不稳)时前端也能自愈，无需手动刷新。
+(function autoReloadAir() {
+  const airImg = document.getElementById('air');
+  let t = null;
+  airImg.addEventListener('error', function () {
+    if (t) return;
+    t = setTimeout(function () {
+      const cur = airImg.src;
+      airImg.src = '';
+      airImg.src = cur;
+      t = null;
+      log('全景断流，已尝试自动重连…');
+    }, 2000);
+  });
+})();
+
+// ===== 左侧画面点选目标区 + AR 导航叠加 =====
+const PROC_W = (typeof ENV_PROC_W !== 'undefined') ? ENV_PROC_W : 480;
+const PROC_H = (typeof ENV_PROC_H !== 'undefined') ? ENV_PROC_H : 270;
+const zoneCanvas = document.getElementById('zoneCanvas');
+const zctx = zoneCanvas.getContext('2d');
+let lockedZone = null;
+let lastNav = null;
+let lastZones = [];
+let COLLAPSE = null;   // 扇形倒塌检测区域参数（/api/status 下发）
+
+function sizeZoneCanvas(){
+  const box = document.querySelector('.airbox');
+  const r = box.getBoundingClientRect();
+  zoneCanvas.width = r.width;
+  zoneCanvas.height = r.height;
+}
+window.addEventListener('resize', sizeZoneCanvas);
+sizeZoneCanvas();
+
+function frame2canvas(fx, fy){
+  return { x: fx * zoneCanvas.width / PROC_W,
+           y: fy * zoneCanvas.height / PROC_H };
+}
+function canvas2frame(cx, cy){
+  return { x: cx * PROC_W / zoneCanvas.width,
+           y: cy * PROC_H / zoneCanvas.height };
+}
+
+// 画目标区框：isLocked=true 时锁定目标只画这一个【绿色线框】(其他候选框都不出现)；
+// 未锁定时才画全部彩色候选框供点选。
+function paintZones(zones, isLocked){
+  if(!zones || !Array.isArray(zones)) return;
+  zctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+  zones.forEach(z=>{
+    const b = z.bbox || [0,0,0,0];
+    const p = frame2canvas(b[0], b[1]);
+    const w = b[2] * zoneCanvas.width / PROC_W;
+    const h = b[3] * zoneCanvas.height / PROC_H;
+    if(isLocked){
+      // 锁定后的目标区：只画一个绿色边框（用户要求）；不叠加候选框
+      zctx.strokeStyle = '#3ddc84';
+      zctx.lineWidth = 3;
+      zctx.globalAlpha = 0.95;
+      zctx.strokeRect(p.x, p.y, w, h);
+      zctx.fillStyle = '#3ddc84';
+      zctx.font = 'bold 13px sans-serif';
+      const label = (z.kind==='water' ? '水源' : (z.kind==='collapse' ? '倒塌区' : '坑')) + ' · 当前目标(G)';
+      zctx.fillText(label, p.x, p.y > 16 ? p.y - 6 : p.y + 16);
+      zctx.globalAlpha = 1;
+      if (z.kind === 'collapse') paintCollapseSector(z, p);
+      return;
+    }
+    const isWater = z.kind === 'water';
+    const isCollapse = z.kind === 'collapse';
+    // 颜色：水源=青蓝、倒塌区=紫、坑=黄
+    const color = isWater ? '#5ad0ff' : (isCollapse ? '#c064ff' : '#ffd23d');
+    zctx.strokeStyle = color;
+    zctx.lineWidth = 2;
+    zctx.globalAlpha = 0.85;
+    zctx.strokeRect(p.x, p.y, w, h);
+    zctx.fillStyle = color;
+    zctx.font = '12px sans-serif';
+    const label = (isWater ? '水源' : (isCollapse ? '倒塌区' : '坑')) + ' (' + z.cx + ',' + z.cy + ')';
+    zctx.fillText(label, p.x, p.y > 14 ? p.y - 4 : p.y + 14);
+    zctx.globalAlpha = 1;
+  });
+}
+
+// 扇形倒塌检测区域：以锁定目标区(倒塌区/紫色建筑)中心为顶点，向倾倒方向展开的预测覆盖扇形。
+// 几何(直角三角形 底11/斜15)：半张角 θ=asin(底/斜)；半径=radius_px；中心方向 dir_deg。
+// 画面角度约定：0°=右、90°=下、-90°=上（顺时针为正），倾倒方向默认向右下(45°)。
+function paintCollapseSector(z, p){
+  const cs = (typeof COLLAPSE !== 'undefined') ? COLLAPSE : null;
+  if(!cs || !cs.enabled) return;
+  const cxm = cs.dir_deg * Math.PI/180;               // 扇形中心方向(rad)
+  const half = Math.asin(cs.AY / cs.CX);              // 半张角 rad
+  const r = cs.radius_px;                             // 半径(画面像素)
+  const a0 = cxm - half, a1 = cxm + half;
+  // 填充扇形 (canvas 角度 0=右、正=顺时针，与 dir_deg 一致)
+  zctx.fillStyle = cs.color;
+  zctx.strokeStyle = cs.stroke;
+  zctx.lineWidth = 2;
+  zctx.globalAlpha = 1;
+  zctx.beginPath();
+  zctx.moveTo(p.x, p.y);
+  zctx.arc(p.x, p.y, r, a0, a1);
+  zctx.closePath();
+  zctx.fill();
+  zctx.stroke();
+  // 两条半径边线
+  zctx.beginPath(); zctx.moveTo(p.x,p.y);
+  zctx.lineTo(p.x + r*Math.cos(a0), p.y + r*Math.sin(a0)); zctx.stroke();
+  zctx.beginPath(); zctx.moveTo(p.x,p.y);
+  zctx.lineTo(p.x + r*Math.cos(a1), p.y + r*Math.sin(a1)); zctx.stroke();
+  // 顶点圆点
+  zctx.beginPath(); zctx.arc(p.x, p.y, 4, 0, Math.PI*2); zctx.fillStyle='#ff5050'; zctx.fill();
+  // "倒塌方向 ↓" 标注：沿扇形中心方向（右下）, 距离 0.5R 处（红，和紫墙隔开）
+  const am = (a0+a1)/2;               // 扇形中间角（=中心方向）
+  const ax = p.x + r*0.50*Math.cos(am), ay = p.y + r*0.50*Math.sin(am);
+  zctx.fillStyle = 'rgba(255,70,70,0.95)';
+  zctx.font = 'bold 14px sans-serif';
+  zctx.fillText('倒塌方向 ↓', ax + 10, ay - 8);
+  // 沿扇形下边界方向的红色箭头（"下面的箭头"，指向右下）
+  zctx.strokeStyle = 'rgba(255,70,70,0.95)'; zctx.lineWidth = 3;
+  const A0 = am;                       // 箭头指向 = 扇形中心方向（右下）
+  const b0x = p.x + r*0.92*Math.cos(A0), b0y = p.y + r*0.92*Math.sin(A0);
+  zctx.beginPath(); zctx.moveTo(p.x, p.y); zctx.lineTo(b0x, b0y); zctx.stroke();
+  zctx.lineWidth = 2;
+  zctx.beginPath(); zctx.moveTo(b0x, b0y);
+  zctx.lineTo(b0x - 12*Math.cos(A0 - 0.5), b0y - 12*Math.sin(A0 - 0.5));
+  zctx.lineTo(b0x - 12*Math.cos(A0 + 0.5), b0y - 12*Math.sin(A0 + 0.5));
+  zctx.closePath(); zctx.fill();
+}
+
+// 画 AR 导航：车头朝向线 + 建议转向后的走向线 + 到目标区的连线
+function paintNav(nav){
+  if(!nav || !nav.valid || nav.car === null){
+    return;  // 无建议时不画（保留已画的区框）
+  }
+  const car = nav.car;                 // (ccx, ccy)
+  const z = nav.zone;                  // (zx, zy)
+  const yaw = (nav.yaw==null ? 0 : nav.yaw);
+  const turn = nav.turn_deg || 0;
+
+  const c = frame2canvas(car[0], car[1]);
+  const L = 150;                       // AR 线长(px)，更粗更长
+
+  // 车头朝向向量（平面直角坐标系：0°=朝画面右，90°=朝画面顶，逆时针为正）
+  // 注意图像 y 向下，故 hy=-sin —— 与后端 _compute_nav 完全一致
+  const a = Math.PI/180 * yaw;
+  const hx = Math.cos(a), hy = -Math.sin(a);
+  const headEnd = { x: c.x + hx*L, y: c.y + hy*L };
+
+  // 建议转向角度后的走向（绿色粗实线）：把车头方向旋转 turn_deg
+  const b = Math.PI/180 * (yaw - turn);
+  const bx = Math.cos(b), by = -Math.sin(b);
+  const navEnd = { x: c.x + bx*L*1.2, y: c.y + by*L*1.2 };
+
+  // —— 动态路径光点：沿"两条路径线"(当前朝向红线 / 建议走向绿线)流动，而不是小车周围 ——
+  // 用性能时间做相位，让亮点/光带沿线流动，产生一条"正在走的路径"的动态感
+  const phase = (performance.now() / 110) % (2*Math.PI);
+  // 建议角标注放在角平分线方向上（小车到目标折角的中间，约在转向角开口处）
+  // 红线沿线流动亮点（当前车头朝向的路径）
+  for(let k=0; k<7; k++){
+    const t = ((phase / (2*Math.PI)) + k/7) % 1;     // 沿线进度0~1
+    const px = c.x + (headEnd.x - c.x)*t;
+    const py = c.y + (headEnd.y - c.y)*t;
+    const glow = 0.5 + 0.5*Math.sin(phase + k*1.3);
+    zctx.fillStyle = k===6 ? '#ff6b5b' : 'rgba(255,107,91,0.65)';
+    zctx.beginPath(); zctx.arc(px, py, 3.2 + glow*1.8, 0, 2*Math.PI); zctx.fill();
+  }
+  // 绿线沿线流动亮点（建议转向后走向的路径）
+  for(let k=0; k<8; k++){
+    const t = ((phase / (2*Math.PI)) + k/8) % 1;
+    const px = c.x + (navEnd.x - c.x)*t;
+    const py = c.y + (navEnd.y - c.y)*t;
+    const glow = 0.5 + 0.5*Math.sin(phase + k*1.15);
+    zctx.fillStyle = k===7 ? '#2ee97b' : 'rgba(46,233,123,0.7)';
+    zctx.beginPath(); zctx.arc(px, py, 3.6 + glow*2.0, 0, 2*Math.PI); zctx.fill();
+  }
+  // 在转向角开口(角平分线)处标注需要转的角度
+  const ang0 = Math.atan2(headEnd.y - c.y, headEnd.x - c.x);
+  const ang1 = Math.atan2(navEnd.y - c.y, navEnd.x - c.x);
+  const midAng = (ang0 + ang1) / 2;
+  const oz = c.x + Math.cos(midAng) * (L * 0.62);
+  const oy = c.y + Math.sin(midAng) * (L * 0.62);
+  zctx.fillStyle = '#ffffff';
+  zctx.font = 'bold 16px Consolas,monospace';
+  zctx.textAlign = 'center'; zctx.textBaseline = 'middle';
+  const sgn = turn >= 0 ? '+' : '-';
+  zctx.fillText(sgn + Math.abs(turn).toFixed(0) + '°', oz, oy);
+  zctx.textAlign = 'left'; zctx.textBaseline = 'alphabetic';
+
+  // —— 红色粗箭头 = 当前车头方向 ——
+  zctx.strokeStyle = '#ff4b4b'; zctx.lineWidth = 7;
+  zctx.lineCap = 'round';
+  zctx.beginPath(); zctx.moveTo(c.x, c.y); zctx.lineTo(headEnd.x, headEnd.y); zctx.stroke();
+  drawArrow(c.x, c.y, headEnd.x, headEnd.y, '#ff4b4b', 20);
+
+  // 目标区中心
+  const zc = frame2canvas(z[0], z[1]);
+  // 到目标的连线（灰虚线，提示目标方位）
+  zctx.strokeStyle = 'rgba(200,200,200,0.55)'; zctx.lineWidth = 1.6;
+  zctx.setLineDash([6,5]);
+  zctx.beginPath(); zctx.moveTo(c.x, c.y); zctx.lineTo(zc.x, zc.y); zctx.stroke();
+  zctx.setLineDash([]);
+
+  // —— 绿色粗箭头 = 建议转向后走向 ——
+  zctx.strokeStyle = '#2ee97b'; zctx.lineWidth = 8;
+  zctx.beginPath(); zctx.moveTo(c.x, c.y); zctx.lineTo(navEnd.x, navEnd.y); zctx.stroke();
+  drawArrow(c.x, c.y, navEnd.x, navEnd.y, '#2ee97b', 22);
+  zctx.lineCap = 'butt';
+}
+
+function drawArrow(x1,y1,x2,y2,color,size=14){
+  const ang = Math.atan2(y2-y1, x2-x1);
+  const s = size;
+  zctx.fillStyle = color;
+  zctx.beginPath();
+  zctx.moveTo(x2, y2);
+  zctx.lineTo(x2 - s*Math.cos(ang-0.38), y2 - s*Math.sin(ang-0.38));
+  zctx.lineTo(x2 - s*Math.cos(ang+0.38), y2 - s*Math.sin(ang+0.38));
+  zctx.closePath();
+  zctx.fill();
+}
+
+// ===== AR 高频重绘循环：区框 + 动态扇形导航，保证流动动画流畅 =====
+function repaintAll(){
+  paintZones(lockedZone ? [lockedZone] : lastZones, !!lockedZone);
+  paintNav(lastNav);
+  requestAnimationFrame(repaintAll);
+}
+requestAnimationFrame(repaintAll);
+
+zoneCanvas.addEventListener('click', async (e)=>{
+  const r = zoneCanvas.getBoundingClientRect();
+  const px = e.clientX - r.left;
+  const py = e.clientY - r.top;
+  const f = canvas2frame(px, py);
+  const res = await fetch('/api/select_zone?x=' + Math.round(f.x) +
+                           '&y=' + Math.round(f.y)).then(x=>x.json());
+  log(res.ok ? '🎯 已选择当前目标区' : '✗ ' + (res.reason||'点选失败'));
+});
+
+// ===== 状态轮询 =====
+setInterval(async ()=>{
+  try{
+    const st = await fetch('/api/status').then(x=>x.json());
+    if(st.mode) mode = st.mode;
+    paintModeBtns();
+
+    const loc = st.car_locked || st.car_loc;
+    document.getElementById('carLoc').textContent = loc?'已定位':'未定位';
+    const lb = document.getElementById('lockBadge');
+    lb.textContent = st.car_locked ? '位置已锁定' : '位置未锁定';
+    lb.className = 'badge' + (st.car_locked ? ' lock':'');
+    const carSeen = !!(st.car_loc || st.car_locked);
+    confirmBtn.disabled = !carSeen;
+    confirmBtn.className = st.car_locked ? 'primary' : '';
+
+    lockedZone = (st.zones_locked && st.zones_locked[0]) || null;
+    lastZones = st.zones || [];
+    if(st.collapse) COLLAPSE = st.collapse;   // 扇形倒塌区域参数
+    // 区框 + AR 由 rAF 动画循环统一高频重绘（动态扇形才流畅），这里只记数据
+
+    const zb = document.getElementById('zlockBadge');
+    const nz = (st.zones_locked||[]).length;
+    zb.textContent = nz ? '目标区已选' : '目标区未选';
+    zb.className = 'badge' + (nz ? ' zlock':'');
+
+    // 坐标导航建议（数据）—— 绘制由 rAF 循环负责
+    lastNav = st.nav || null;
+    const navbig = document.getElementById('navbig');
+    const navDeg = document.getElementById('navDeg');
+    const navTxt = document.getElementById('navTxt');
+    const navBadge = document.getElementById('navBadge');
+    if(lastNav && lastNav.valid){
+      const t = lastNav.turn_deg||0;
+      const d = t >= 0 ? '右' : '左';
+      navbig.style.display = 'flex';
+      navDeg.textContent = `${d} ${Math.abs(t).toFixed(0)}°`;
+      navTxt.innerHTML = `建议先向${d}转 <b>${Math.abs(t).toFixed(0)}°</b> 再直行让开目标区。<br>`+
+        `随后按住 W 前进，由你人工操控。`;
+      navBadge.textContent = '建议可用';
+      navBadge.className = 'badge nav';
+    } else {
+      navbig.style.display = 'none';
+      navBadge.textContent = '待锁定';
+      navBadge.className = 'badge';
+    }
+
+    // 研判报告：目标区 + DeepSeek 研判 + 车载兜底
+    const zsrc = st.zones_locked&&st.zones_locked.length ? st.zones_locked : (st.zones||[]);
+    const zm = zsrc.map(z=>`${z.kind==='water'?'水源区':(z.kind==='collapse'?'倒塌区':'坑')}`).join('、') || '无';
+    let html = `<div>目标区：<b class="zone">${zm}</b></div>`;
+    html += `<div style="color:var(--gray)">当前位置：${st.reason||''}</div>`;
+    if(st.onboard_near){
+      const k = st.onboard_near_kind==='water'?'水源':'坑';
+      html += `<div class="hazard">【车载近距兜底】前方贴近${k}，请减速/停止（人工操控）</div>`;
+    }
+    if(st.assessment){
+      // 去掉"坑洞3433"这类 DeepSeek 自编编号里的数字（中文后紧跟数字的去掉数字）
+      const txt = st.assessment.replace(/([\u4e00-\u9fa5])\s*[0-9]+/g, '$1').trim();
+      html += `<div class="assess">${txt}</div>`;
+    }
+    report.innerHTML = html;
+
+    if(st.cmd_log && st.cmd_log.length){
+      const first = st.cmd_log[0];
+      if(first !== logEl.firstChild?.textContent){
+        logEl.innerHTML='';
+        st.cmd_log.slice(0,5).forEach(L=>{
+          const t=document.createElement('div'); t.textContent=L; logEl.appendChild(t);
+        });
+      }
+    }
+  }catch(e){}
+}, 700);
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.local
+
+# Arduino / ESP32 build outputs
+build/
+.pio/
+*.bin
+*.elf
+*.map
+
+# Local config with real secrets / site IPs (use the .example files instead)
+software/config.py
+firmware/SmartCar_System/config.h
+!software/config.example.py
+!firmware/SmartCar_System/config.example.h
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
