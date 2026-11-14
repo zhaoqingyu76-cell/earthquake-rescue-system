@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.1.1 - 2026-11-15
+
+### Fixed
+
+- 删除 README.md / README.en.md 中错误的国家级大学生创新创业训练计划项目表述（AGCDR 不是该项目）。
+
 ## v1.1.0 - 2026-11-15
 
 ### Added
