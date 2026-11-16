@@ -1,41 +1,37 @@
-# AGENTS.md
+## 项目概述
+独立小车（机器人）远程控制前端应用。从 AGCDR Software 中摘离"小车控制"相关组件构成，剔除了图传视频、GPS 定位、数据库存储、无人机控制等无关功能。
 
-Working notes for agents contributing to this repo.
+## 技术栈
+- React 18 + Vite 5（前端 SPA）
+- pnpm 包管理器
+- @vitejs/plugin-react
 
-## Layout
+## 目录结构
+- `src/App.jsx` — 应用入口组件
+- `src/index.jsx` — React 挂载入口
+- `src/components/ControlPanel.jsx` + `.css` — 小车控制面板：方向控制(f/b/l/r/s)、模式切换(manual/trace/avoid)、连接状态检测、键盘控制(WASD/方向键/空格)、小车 IP 配置
+- `src/services/api.js` — 小车 API：
+  - `getCarData()` 获取实时数据/连接状态
+  - `sendControlCommand(cmd)` 方向命令 f/b/l/r/s
+  - `setMode(mode)` 模式 manual/trace/avoid
+  - `toggleFan()` 风扇开关
+- `vite.config.js` / `index.html` — 构建配置
 
-- `firmware/SmartCar_System/` — ESP32 Arduino firmware. Entry: `SmartCar_System.ino`.
-  Modules: `SpeedDrive` (motors + speed), `TraceControl` (line tracking),
-  `AvoidControl` (ultrasonic + servo scan), `WebHandler` (web console, AP+STA).
-- `firmware/camera/` — onboard camera web UI (`camera_web.html`, GC2145):
-  served on `:80`, MJPEG stream on `:81/stream`; this is the device
-  `software/config.py` calls `ONBOARD_IP`, separate from the car control IP.
-- `software/` — Python host. Entry: `web_server.py` (Flask console).
-  `car.py` talks to the car over HTTP (`/cmd`, `/mode`); `detection.py`
-  does colour segmentation + ArUco localisation; `decision.py` decides
-  stop/continue; `deepseek.py` is an optional tactical-advisor call.
-  `rescue_controller.py` is the OpenCV-window fallback controller.
-  Frontend lives in `software/web/index.html` (loaded by `web_server.py`
-  from `web/index.html`, not from Flask `templates/`).
-- `software/demo/` — hardware-free full-process concept demo
-  (`sim_tactical_brain_cartoon.py`): stage 1 traditional straight-line
-  failure vs stage 2 A* green route with human-in-the-loop, for
-  presentations. See `software/demo/README.md`.
-- `tools/` under `software/` — camera-index probe and HSV calibration helpers.
+## 运行与预览
+- 预览型 web 项目，端口取 `.preview` 的 `expose_port=5000`
+- 安装：`pnpm install --ignore-scripts`
+- 开发：`pnpm run dev:web`（vite --host, 5173）
+- 预览：`pnpm exec vite preview --host 0.0.0.0 --port 5000`
+- 构建：`pnpm run build` → `dist/`
 
-## Rules
+## 关键配置
+- 小车默认为 `http://10.40.47.150`，控制面板可改 IP，存于 localStorage `carConfig`（key: carIP）
+- 真实小车需提供 `/data`、`/cmd?go=xx`、`/cmd?mode=xx` 接口
 
-- Never commit real secrets: Wi-Fi passwords, API keys, or site IPs.
-  Keys come from environment variables only (`DEEPSEEK_API_KEY`,
-  `CAR_IP`, `ONBOARD_IP`). Ship `.example` files, never the real config.
-- Keep the middle register in public-facing docs: technical, but do not
-  disclose specific hardware models or core algorithm details beyond
-  what the code itself already shows.
-- Small, conventional commits: `feat:`, `fix:`, `docs:`, `ci:`, `chore:`.
-- Before pushing, run `python -m py_compile software/*.py software/tools/*.py software/demo/*.py`
-  and `python -m pytest software/tests -q`, and make sure CI (arduino-cli compile
-  of the firmware) is green.
-- Detection noise is fixed in `detection.py`, not by widening HSV ranges:
-  tune `MIN_ZONE_AREA`, `ZONE_MERGE_PX`, `ZONE_PERSIST_FRAMES` and `ROI`
-  in `config.py` first; re-calibrate HSV with `software/tools/probe_color.py`
-  when the lighting changes.
+## 用户偏好与长期约束
+- Node 只用 pnpm，禁止 npm/yarn
+- 端口 5000 / 5173，不碰 9000
+
+## 常见问题和预防
+- 无真实小车时连接状态显示"未连接"为正常现象，不影响前端演示
+- 依赖不带 Electron（纯前端），无需 --ignore-scripts 之外的特殊处理
